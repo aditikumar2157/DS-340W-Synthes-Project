@@ -1,0 +1,49 @@
+call _startup
+l_commands=no
+l_info=no
+errorAction="exit"
+
+#variables to be modified by the user
+
+path_to_files=""	#path to .sdf files with synthons
+molt_dir=""	#output folder path
+molt_name = "synthons_REAL_full"	#output .molt file name
+
+##########
+
+molt_file_full=molt_dir+molt_name+".molt"
+
+if(!Exist(molt_dir)) sys mkdir $molt_dir
+
+#if(!Exist(out_train_dir)) sys mkdir $out_train_dir
+
+
+#open .sdf files one by one 
+
+read sys ls -1a $path_to_files/*.sdf #fetch all fragments
+sdf_files=Split(s_out, "\n")  
+
+
+for i_f=1,Nof(sdf_files)
+  print "Saving to molt database"
+  print "current iteration: "+String(i_f)
+  print "analyzing file "+sdf_files[i_f]
+  openFile sdf_files[i_f]
+  
+  table_name = Name(sdf_files[i_f])
+  #table_name = "EN_" + Split(Name(sdf_files[i_f]), "-")[2]
+
+  synth_num = Split(table_name, "_")[Nof(Split(table_name, "_"))]
+  add column $table_name Sarray(Nof($table_name),synth_num) name="synthon_num"
+  
+  T_enum=$table_name
+  delete $table_name
+
+#save to molt database
+  #columns = {"1 chemical mol", "2 string Molecule Name", "3 string synton_id_1", "4 string synton_id_2", "5 string synton_id_3", "6 int const_synth", "7 string rxn_ID"}
+  #columns = {"1 chemical mol", "2 string Molecule Name", "3 string synton_id_1", "4 string synton_id_2", "5 string synton_id_3", "6 string rxn_ID", "7 int const_synth",}    #for MEL from 2021
+
+  make molcart table T_enum name=molt_name filename=molt_file_full append
+  delete T_enum
+endfor
+quit

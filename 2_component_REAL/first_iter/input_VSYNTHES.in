@@ -1,0 +1,37 @@
+#variable	value	comment (don't remove this line!)
+#
+#
+#
+#input parameters for docking_launcher.icm
+#
+#
+#
+DOCKING_SCORE_THRESHOLD	"-10."	#only ligands with score lower than the specified will be saved during docking
+ICM_HOME	"/usr/icm-3.9-3b"	#path to icm home
+EFFORT_DOCKING	"2."	#docking effort, recommended is 2
+NCPU_DOCKING	"31"	#number of threads to use in docking
+PROJECT_PATH	""	#docking project directory, default is run/ in the CWD
+SDF_FOR_DOCKING_PATH	""	#default is files/ in the CWD
+#
+#
+#
+#input parameters for icm_load_hits_Enamine_2022.icm
+#
+#
+#
+PATH_INX_FILES	""	#path to .inx files which were used for docking, default in files/ in CWD
+LOAD_SCORE_THRESHOLD	"-10."	#only hits with score better than the threshold will be saved for further analysis
+#
+#
+#
+#input parameters for icm_enumerate_REAL_frags_Enamine_2022.icm
+#
+#
+#
+MAX_MOLS	"1000000"	#maximum number of enumerated molecules in the output
+CHUNKS_COUNT	"20"	#number of chunks the output enumerated molecules will be split into; size of individual chunks is CHUNKS_COUNT/MAX_MOLS
+FLT_MW	"500."	#MW filter for enumeration
+FLT_3COMP	"400."	#MW filtering for the first iteration of enumeration of 3-component reaction
+ADDITIONAL_FILTERS	"MolLogP(mol)<5. & Nof_RotB(mol)<11 & Nof_HBD(mol)<6 & Nof_HBA(mol)<11"		#additional filters
+OUTPUT_SUFFIX	"2comp_final_2022"	#suffix for output files
+#

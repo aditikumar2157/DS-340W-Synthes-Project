@@ -1,0 +1,105 @@
+call _startup
+
+maxFileSizeMb=2000
+
+l_commands = l_info = l_warn = yes 
+
+#####
+#put the script into folder above /run/
+#
+#variables to be modified by the user, can be read from inut file
+DOCKING_SCORE_THRESHOLD="-18."
+ICM_HOME="/usr/icm-3.9-3b"
+EFFORT_DOCKING="2."
+NCPU_DOCKING="31" #"30"
+PROJECT_PATH="" #docking project directory
+SDF_FOR_DOCKING_PATH="" #default is files/ in the directory above project_path
+#####
+
+if(Exist("./input_VSYNTHES.in")) then
+  read table separator ="\t" "input_VSYNTHES.in"
+  a = input_VSYNTHES.A
+  b = input_VSYNTHES.B
+  for i = 1,Nof(a)
+    if(Length(a[i])==0 | Length(b[i])==0) continue
+    if(a[i]!="" & a[i][1]!="#" & b[i][1]!="#") then
+      $a[i] = b[i]
+      print a[i] "\t" $a[i]
+    endif
+  endfor 
+else
+  print "input_VSYNTHES.in is not provided, going with defaults settings"
+endif
+
+ScoreThreshold=Real(DOCKING_SCORE_THRESHOLD)
+nproc_fork=Integer(NCPU_DOCKING)
+effort_1=Real(EFFORT_DOCKING)
+icmhome_1=ICM_HOME
+project_path=Path()+"/run/"
+if(PROJECT_PATH!="") project_path=PROJECT_PATH
+sdf_for_dock_path=Path()+"/files/"
+if(SDF_FOR_DOCKING_PATH!="") sdf_for_dock_path=SDF_FOR_DOCKING_PATH
+
+if(sdf_for_dock_path=="") then
+    curr_path=Split(project_path,"/")
+    for i=1,Nof(curr_path)-1
+        sdf_for_dock_path=sdf_for_dock_path+curr_path[i]+"/"
+    endfor
+    sdf_for_dock_path=sdf_for_dock_path+"files/"
+endif
+
+path_to_files=sdf_for_dock_path
+
+path_to_store_files=path_to_files
+
+read sys ls -1a $path_to_files/*.sdf #fetch all fragments
+sdf_files=Split(s_out, "\n")  
+
+for i=1,Nof(sdf_files)
+  sdf_file=sdf_files[i]
+  sdf_file_copy=path_to_store_files+"/"+Name(sdf_file)+".sdf"
+  inx_file=path_to_store_files+"/"+Name(sdf_file)+".inx"
+  if(!Exist(sdf_file_copy)) sys cp $sdf_file $sdf_file_copy
+  if(!Exist(inx_file)) write index mol sdf_file_copy inx_file
+  delete all tables
+endfor
+
+
+read sys find $project_path/*_rec.ob
+rec_ob=Split(s_out,"\n")[1]
+temp_name=Split(rec_ob,"/")
+temp_ProjectName=temp_name[Nof(temp_name)]
+ProjectName=temp_ProjectName[1:Length(temp_ProjectName)-7]
+
+
+
+
+
+read sys hostname
+curr_hostname=Split(s_out,"\n")[1]
+if(Exist(curr_hostname)) then #file with workload is found
+  read sys cat $curr_hostname
+else
+  read sys ls -1a $path_to_files/*.inx #*st*.inx #fetch all fragments
+endif
+
+s_1=s_out
+inx_files=Split(s_1, "\n")
+
+set directory project_path
+
+for i=1,Nof(inx_files) #fork 3
+  inx_file=inx_files[i]
+  print inx_file
+  inx_name=Name(inx_file)
+  if(!Exist(inx_file) ) continue
+  print "start docking, iteration "+String(i)
+  print "file name "+Name(inx_file)
+  sdf_file=path_to_files+Name(inx_file)+".sdf"
+  read sys stat --printf="%s" $sdf_file
+  size_mb=Real(s_out)/1024/1024
+  print "current file size, MB: "+size_mb
+  unix $icmhome_1/icm64 $icmhome_1/_dockScan $ProjectName input=$inx_file effort=$effort_1 proc=$nproc_fork -noStructFilter scoreCutoff=$ScoreThreshold name=$inx_name > job_$i.log 2>&1
+endfor
+
+quit

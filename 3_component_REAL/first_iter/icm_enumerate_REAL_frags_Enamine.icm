@@ -1,0 +1,599 @@
+call _startup
+l_commands=no
+l_info=no
+errorAction="exit"
+
+#####
+#put the script into folder above /run/
+#
+#variables to be modified by the user
+MAX_MOLS="100000" #maximum number of enumerated molecules in the output
+FLT_3COMP="400." #molecular weight filter for the first iteration of the 3comp library
+ADDITIONAL_FILTERS="MolLogP(mol)<5. & Nof_RotB(mol)<11 & Nof_HBD(mol)<6 & Nof_HBA(mol)<11" #additional filters
+CHUNKS_COUNT="20"
+OUTPUT_SUFFIX=""
+PATH_TO_SYNTHONS=""
+PATH_TO_REACTIONS=""
+FLT_MW="500."
+FRAGS_FOR_ENUM=""
+root_folder=""
+REC_NAME=""
+chunkify_only_flag="no"
+CHARGE_ENUM_LIB="yes"
+CHARGE_TERTIARY="yes"
+CHARGE_IMIDAZOLE="yes"
+#####
+
+if(Exist("./input_VSYNTHES.in")) then
+  read table separator ="\t" "input_VSYNTHES.in"
+  a = input_VSYNTHES.A
+  b = input_VSYNTHES.B
+  for i = 1,Nof(a)
+    if(Length(a[i])==0 | Length(b[i])==0) continue
+    if(a[i]!="" & a[i][1]!="#" & b[i][1]!="#") then
+      $a[i] = b[i]
+      print a[i] "\t" $a[i]
+    endif
+  endfor 
+else
+  print "input_VSYNTHES.in is not provided, going with default settings"
+endif
+
+if(REC_NAME=='') then
+  path_to_project=Path()+"/run/"
+  read sys find $path_to_project/*_rec.ob
+  rec_ob=Split(s_out,"\n")[1]
+  temp_name=Split(rec_ob,"/")
+  temp_ProjectName=temp_name[Nof(temp_name)]
+  project_name=temp_ProjectName[1:Length(temp_ProjectName)-7]
+  print project_name
+  REC_NAME=Split(project_name,"_")[1]
+else
+  project_name=REC_NAME+"_"
+endif
+print "receptor name is: "+REC_NAME
+
+if(PATH_TO_SYNTHONS=="") then
+  path_to_synthons=Path()+"/synthons/"
+else
+  path_to_synthons=PATH_TO_SYNTHONS
+  if(!Exist(path_to_synthons)) then
+    print "path to synthons is incorrect"
+    quit
+  endif
+endif
+
+if(PATH_TO_REACTIONS=="") then
+  path_to_reactions=Path()+"/SYNTHONS_REACTIONS_REAL.icb" #contains min synthons too
+else
+  path_to_reactions=PATH_TO_REACTIONS
+  sys cp $path_to_reactions .
+  path_to_reactions=Path()+"/SYNTHONS_REACTIONS_REAL.icb"
+  if(!Exist(path_to_reactions)) then
+    print "path to reactions is incorrect"
+    quit
+  endif
+endif
+
+reactions_table="all_rxns"
+min_synth_table="min_synthons"
+
+if(root_folder=='')then
+  root_folder=Path()+"/run/processing_files/"
+else
+  if(!Exist(root_folder)) sys mkdir $root_folder
+endif
+path_to_synthons_to_enum=root_folder+"/frags_for_enum.sdf"
+if(FRAGS_FOR_ENUM!="") then
+  sys cp $FRAGS_FOR_ENUM $path_to_synthons_to_enum
+endif
+out_dir=root_folder+"/enumerated_best_frags_"+REC_NAME+"_"+OUTPUT_SUFFIX+"_"+MAX_MOLS+"/"
+if(!Exist(out_dir)) sys mkdir $out_dir
+
+openFile path_to_reactions
+reactions=$reactions_table
+minimal_synthons=$min_synth_table
+
+if(Nof(minimal_synthons.synthon_simple)==0) then
+add column minimal_synthons function="Name(rxn_ID+'_'+s_inx simple)" name="synthon_simple"
+endif
+
+openFile path_to_synthons_to_enum
+table_name_to_enum=Name(Split(path_to_synthons_to_enum,"/")[Nof(Split(path_to_synthons_to_enum,"/"))])
+frags_for_enum=$table_name_to_enum
+nof_frags=Nof(frags_for_enum)
+
+group table enumeration_results Sarray(Nof(frags_for_enum),frags_for_enum.full_synton_id) "full_synton_id" Iarray(Nof(frags_for_enum),0) "nof_enum"
+
+nof_mols=0
+
+if(chunkify_only_flag=='no')then
+
+for i_m=1,nof_frags 
+  curr_react_id=frags_for_enum.rxn_ID[i_m]
+  frags_inx=Split(frags_for_enum.full_synton_id[i_m],"_") 
+  print i_m, frags_inx
+  
+
+  curr_score=0.
+  curr_score2=0.
+  curr_comment=""
+  curr_spheres=""
+  if(Nof(frags_for_enum.Score)>0) then
+    curr_score=Real(frags_for_enum.Score[i_m])
+  endif
+  if(Nof(frags_for_enum.Score2)>0) then
+    curr_score2=Real(frags_for_enum.Score2[i_m])
+  endif
+  if(Nof(frags_for_enum.Comment)>0) then
+    curr_comment=String(frags_for_enum.Comment[i_m])
+  endif
+  if(Nof(frags_for_enum.Spheres)>0) then
+    curr_spheres=String(frags_for_enum.Spheres[i_m])
+  endif
+  curr_reaction=(reactions.rxn_ID==curr_react_id)
+
+  if (Length(Match(curr_react_id "275592"))==0) then
+    is_275592="no"
+	N_comp=Integer(curr_reaction.nof_attach[1])
+  else
+    is_275592="yes"
+    N_comp=275592
+  endif
+  
+  if(Nof(curr_reaction)==0) then
+    curr_reaction=(reactions.rxn_ID==Name(curr_react_id simple))
+  endif
+  if(Nof(curr_reaction)!=1) then
+    "problem with the reaction"
+    continue
+  endif
+  nof_frags_inx=Nof(frags_inx)
+  inx_s1=frags_inx[nof_frags_inx-2]
+  inx_s2=frags_inx[nof_frags_inx-1]
+  inx_s3=frags_inx[nof_frags_inx]
+  
+  if(ADDITIONAL_FILTERS!="") then
+    additional_filters=" & "+ADDITIONAL_FILTERS
+  else
+    additional_filters=""
+  endif
+  if(N_comp==275592) then
+    #determine whether this is the first enumeration or the second
+    enum_step=""
+    if(frags_for_enum.synton_id_1[i_m]=="s0") then #first enum, add bridge (s1)
+      enum_step="bridge"
+	  flt_3comp=FLT_3COMP
+      const_synth=String(Integer(frags_for_enum.const_synth[i_m]))
+      if(const_synth=="12") then
+        anchor_synthon1="3"
+        anchor_synthon2="2"
+        var_synthon="1"
+      else
+        anchor_synthon1="2"
+        anchor_synthon2="3"
+        var_synthon="1"
+      endif
+	  const_synthons="23"
+    else #second enum, add second synthon to the other side of the bridge
+      enum_step="final"
+	  flt_3comp=FLT_MW
+      const_synth=String(Integer(frags_for_enum.const_synth[i_m])) #must be '23'
+      if(frags_for_enum.synton_id_2[i_m]=="s0") then
+        anchor_synthon1="3"
+        anchor_synthon2="1"
+        var_synthon="2"
+		const_synthons="13"
+      else
+        anchor_synthon1="2"
+        anchor_synthon2="1"
+        var_synthon="3"
+		const_synthons="12"
+      endif
+    endif
+
+
+    check_if_enumerated="inx_s"+var_synthon
+    if ($check_if_enumerated!="s0") then
+      print "synthon "+check_if_enumerated+" enumerated, something is wrong"
+      exit
+    endif
+
+    print "var_synthon anchor_synthon1 anchor_synthon2"
+    print var_synthon,anchor_synthon1,anchor_synthon2
+    s_var_name=curr_react_id+"__"+var_synthon
+    file_s_var=path_to_synthons+"/"+s_var_name+".sdf"
+    openFile file_s_var
+    r_table_name_var="r"+var_synthon
+    $r_table_name_var=$s_var_name
+
+    s_anch_name1=curr_react_id+"__"+anchor_synthon1
+    curr_synth_pos1="inx_s"+anchor_synthon1
+    inx_curr_synth1=$curr_synth_pos1
+    if(inx_curr_synth1!="s0") then
+      file_s_anch1=path_to_synthons+"/"+s_anch_name1+".sdf"
+      openFile file_s_anch1
+      inx_s=Index($s_anch_name1.synton_id==inx_curr_synth1)[1]
+      curr_synthon_mol=$s_anch_name1[inx_s]
+    else #need to load minimal synthon
+      curr_synthon_mol=(minimal_synthons.synthon_simple==curr_react_id+"_s"+anchor_synthon1)    
+    endif
+    r_table_name1="r"+anchor_synthon1
+    $r_table_name1=curr_synthon_mol
+    
+    #anchor_synthon2
+    s_anch_name2=curr_react_id+"__"+anchor_synthon2
+    curr_synth_pos2="inx_s"+anchor_synthon2
+    inx_curr_synth2=$curr_synth_pos2
+    if(inx_curr_synth2!="s0") then
+      file_s_anch2=path_to_synthons+"/"+s_anch_name2+".sdf"
+      openFile file_s_anch2
+      inx_s=Index($s_anch_name2.synton_id==inx_curr_synth2)[1]
+      curr_synthon_mol=$s_anch_name2[inx_s]
+    else #need to load minimal synthon
+      curr_synthon_mol=(minimal_synthons.synthon_simple==curr_react_id+"_s"+anchor_synthon2)    
+    endif
+    r_table_name2="r"+anchor_synthon2
+    $r_table_name2=curr_synthon_mol
+    
+    print Nof(r1),Nof(r2),Nof(r3)
+  
+  #now lets setup enumeration
+  flt_r="MolWeight(mol)<"+flt_3comp+additional_filters
+  file_r=out_dir+curr_reaction.rxn_ID[1]+"__var"+var_synthon+"_const"+anchor_synthon1+"_"+String(inx_curr_synth1)+"_const"+anchor_synthon2+"_"+String(inx_curr_synth2)+"_"+const_synthons+".sdf"
+  
+  if (enum_step=="bridge") then
+    for i_r1=1,Nof(r1)
+      enumerate library r1.mol[i_r1] r2.mol r2.synton_id r3.mol r3.synton_id filter = flt_r
+      if(Nof(T_enum)!=0)then
+        add column T_enum Sarray(Nof(T_enum),r1.synton_id[i_r1]) name="synton_id_1"
+        add full_T_enum T_enum
+      endif
+    endfor
+    if(Nof(full_T_enum)!=0)then
+      T_enum=full_T_enum
+      delete full_T_enum
+    endif
+  else
+    enumerate library r1.mol[1] r2.mol r2.synton_id r3.mol r3.synton_id filter = flt_r
+  endif
+  nof_T_enum=Nof(T_enum)
+  if(nof_T_enum!=0) then #fix the enumerated out file
+    rename T_enum.R2_synton_id "synton_id_3"
+    rename T_enum.R1_synton_id "synton_id_2"
+    if(Nof(T_enum.synton_id_1)==0) then
+      add column T_enum Sarray(Nof(T_enum),r1.synton_id[1]) name="synton_id_1"
+    endif
+    add column T_enum Sarray(Nof(T_enum),curr_react_id) name="rxn_ID"
+    add column T_enum Sarray(Nof(T_enum),String(anchor_synthon1)) name="const_synth"
+    add column T_enum Rarray(Nof(T_enum),curr_score) name="orig_Score"
+    add column T_enum Rarray(Nof(T_enum),curr_score2) name="orig_Score2"
+    add column T_enum Sarray(Nof(T_enum),curr_comment) name="orig_Comment"
+    write table mol compress T_enum file_r
+    delete T_enum
+  endif
+  delete $s_anch_name1,$s_anch_name2,$s_var_name
+  
+  if(Exist(file_r)) then
+  enumeration_results.nof_enum[i_m]=nof_T_enum
+  nof_mols=nof_mols+nof_T_enum
+  endif
+
+  elseif(N_comp==3) then
+
+    #determine whether this is the first enumeration or the second
+    enum_count=0
+    if(frags_for_enum.synton_id_1[i_m]=="s0") then
+      enum_count=enum_count+1
+    endif
+    if(frags_for_enum.synton_id_2[i_m]=="s0") then
+      enum_count=enum_count+1
+    endif
+    if(frags_for_enum.synton_id_3[i_m]=="s0") then
+      enum_count=enum_count+1
+    endif
+    if(enum_count==1) then
+      flt_3comp=FLT_MW
+    else
+      flt_3comp=FLT_3COMP
+    endif
+    
+    const_synth=String(Integer(frags_for_enum.const_synth[i_m]))
+    group table new_synthons {"1" "2" "3"} "synthon" Sarray(3) "tag"
+ 
+    if(const_synth=="12") anchor_synthon1="3"
+    if(const_synth=="13") anchor_synthon1="2"
+    if(const_synth=="23") anchor_synthon1="1"
+    new_synthons.tag[Index(new_synthons.synthon==anchor_synthon1)]="anchor_synthon1"   
+    inx_of_enum_sython={"" ""}
+    inx_of_enum_sython[1]="inx_s"+(new_synthons.tag=="").synthon[1]
+    inx_of_enum_sython[2]="inx_s"+(new_synthons.tag=="").synthon[2]
+    nof_enumerations=2
+
+    new_synthons
+
+    for i_enum=1,nof_enumerations
+
+      var_synthon=(inx_of_enum_sython[i_enum])[6] #inx_sX
+      anchor_synthon2=(inx_of_enum_sython[Mod(i_enum,2)+1])[6]
+
+      check_if_enumerated="inx_s"+var_synthon
+      if ($check_if_enumerated!="s0") then
+        print "synthon "+check_if_enumerated+" enumerated, skipping"
+        continue
+      endif
+
+      print "i_enum var_synthon anchor_synthon1 anchor_synthon2"
+      print i_enum,var_synthon,anchor_synthon1,anchor_synthon2
+      #var_synthon
+      s_var_name=curr_react_id+"__"+var_synthon
+      file_s_var=path_to_synthons+"/"+s_var_name+".sdf"
+      openFile file_s_var
+      r_table_name_var="r"+var_synthon
+      $r_table_name_var=$s_var_name
+      
+      #anchor_synthon1
+      s_anch_name1=curr_react_id+"__"+anchor_synthon1
+      curr_synth_pos1="inx_s"+anchor_synthon1
+      inx_curr_synth1=$curr_synth_pos1
+      if(inx_curr_synth1!="s0") then
+        file_s_anch1=path_to_synthons+"/"+s_anch_name1+".sdf"
+        openFile file_s_anch1
+        inx_s=Index($s_anch_name1.synton_id==inx_curr_synth1)[1]
+        curr_synthon_mol=$s_anch_name1[inx_s]
+      else #need to load minimal synthon
+        curr_synthon_mol=(minimal_synthons.synthon_simple==curr_react_id+"_s"+anchor_synthon1)    
+      endif
+      r_table_name1="r"+anchor_synthon1
+      $r_table_name1=curr_synthon_mol
+      
+      #anchor_synthon2
+      s_anch_name2=curr_react_id+"__"+anchor_synthon2
+      curr_synth_pos2="inx_s"+anchor_synthon2
+      inx_curr_synth2=$curr_synth_pos2
+      if(inx_curr_synth2!="s0") then
+        file_s_anch2=path_to_synthons+"/"+s_anch_name2+".sdf"
+        openFile file_s_anch2
+        inx_s=Index($s_anch_name2.synton_id==inx_curr_synth2)[1]
+        curr_synthon_mol=$s_anch_name2[inx_s]
+      else #need to load minimal synthon
+        curr_synthon_mol=(minimal_synthons.synthon_simple==curr_react_id+"_s"+anchor_synthon2)    
+      endif
+      r_table_name2="r"+anchor_synthon2
+      $r_table_name2=curr_synthon_mol
+    
+      print Nof(r1),Nof(r2),Nof(r3)
+
+      print "MW filter for enumeration = "+flt_3comp
+      flt_r="MolWeight(mol)<"+flt_3comp+additional_filters
+      tmp={0 0}
+      tmp[1]=Integer(anchor_synthon1)
+      tmp[2]=Integer(anchor_synthon2)
+      sort tmp
+      const_synthons=String(tmp[1])+String(tmp[2])
+      file_r=out_dir+curr_reaction.rxn_ID[1]+"__var"+var_synthon+"_const"+anchor_synthon1+"_"+String(inx_curr_synth1)+"_const"+anchor_synthon2+"_"+String(inx_curr_synth2)+"_"+const_synthons+".sdf"
+      table_name=Name(file_r)
+      if(Exist(file_r)) then
+        sys rm $file_r
+      endif
+      enumerate library curr_reaction.mol[1] r1.mol r1.synton_id r2.mol r2.synton_id r3.mol r3.synton_id filter = flt_r
+      nof_T_enum=Nof(T_enum)
+      if(nof_T_enum!=0) then #fix the enumerated out file
+        rename T_enum.R3_synton_id "synton_id_3"
+        rename T_enum.R2_synton_id "synton_id_2"
+        rename T_enum.R1_synton_id "synton_id_1"
+        add column T_enum Sarray(Nof(T_enum),String(const_synthons)) name="const_synth"
+        add column T_enum Sarray(Nof(T_enum),curr_react_id) name="rxn_ID"
+        add column T_enum Rarray(Nof(T_enum),curr_score) name="orig_Score"
+        add column T_enum Rarray(Nof(T_enum),curr_score2) name="orig_Score2"
+        add column T_enum Sarray(Nof(T_enum),curr_comment) name="orig_Comment"
+        if(Nof(frags_for_enum.Spheres)>0) then
+          add column T_enum Sarray(Nof(T_enum),curr_spheres) name="orig_spheres"
+        endif
+        write table mol compress T_enum file_r
+        delete T_enum
+      endif
+      delete $s_anch_name1,$s_anch_name2,$s_var_name
+
+      if(Exist(file_r)) then
+      enumeration_results.nof_enum[i_m]=enumeration_results.nof_enum[i_m]+nof_T_enum
+        nof_mols=nof_mols+nof_T_enum
+      endif
+
+    endfor
+
+  elseif(N_comp==2) then
+
+    if(inx_s1=="s0") then
+      var_synthon="1"
+      anchor_synthon1="2"
+    elseif(inx_s2=="s0") then
+      var_synthon="2"
+      anchor_synthon1="1"
+    else
+      print "fully enumerated, nothing to do!"
+    endif
+
+
+    s_var_name=curr_react_id+"__"+var_synthon
+    file_s_var=path_to_synthons+"/"+s_var_name+".sdf"
+    openFile file_s_var
+    r_table_name_var="r"+var_synthon
+    $r_table_name_var=$s_var_name
+    
+    s_anch_name1=curr_react_id+"__"+anchor_synthon1
+    curr_synth_pos1="inx_s"+anchor_synthon1
+    inx_curr_synth1=$curr_synth_pos1
+    file_s_anch=path_to_synthons+"/"+s_anch_name1+".sdf"
+    openFile file_s_anch
+    inx_s=Index($s_anch_name1.synton_id==inx_curr_synth1)[1]
+    curr_synthon_mol=$s_anch_name1[inx_s]
+    r_table_name1="r"+anchor_synthon1
+    $r_table_name1=curr_synthon_mol
+  
+  flt_r="MolWeight(mol)<"+FLT_MW+additional_filters
+  file_r=out_dir+curr_react_id+"__var"+var_synthon+"_const"+anchor_synthon1+"_"+String(inx_curr_synth1)+"_"+anchor_synthon1+".sdf"
+    table_name=Name(file_r)
+    if(Exist(file_r)) sys rm $file_r
+    
+    enumerate library curr_reaction.mol[1] r1.mol r1.synton_id r2.mol r2.synton_id  filter = flt_r
+    
+    nof_T_enum=Nof(T_enum)
+    if(nof_T_enum>0) then
+      rename T_enum.R2_synton_id "synton_id_2"
+      rename T_enum.R1_synton_id "synton_id_1"  
+      add column T_enum Sarray(Nof(T_enum),"s-1") name="synton_id_3"
+      add column T_enum Sarray(Nof(T_enum),String(anchor_synthon1)) name="const_synth"
+      add column T_enum Sarray(Nof(T_enum),curr_react_id) name="rxn_ID"
+  if(Nof(frags_for_enum.Spheres)>0) then
+    add column T_enum Sarray(Nof(T_enum),curr_spheres) name="orig_spheres"
+  endif
+      add column T_enum Rarray(Nof(T_enum),curr_score) name="orig_Score"
+      add column T_enum Rarray(Nof(T_enum),curr_score2) name="orig_Score2"
+      add column T_enum Sarray(Nof(T_enum),curr_comment) name="orig_Comment"
+      write table mol compress T_enum file_r
+      delete T_enum
+    endif
+    
+    if(Exist(file_r)) then
+    enumeration_results.nof_enum[i_m]=nof_T_enum
+      nof_mols=nof_mols+nof_T_enum
+    endif
+
+    delete $s_var_name,$s_anch_name1,$r1_name
+  endif
+  
+  l_warn=no
+  delete r1,r2,r3,r4
+  l_warn=yes
+  
+  print i_m, nof_mols
+  if(Real(nof_mols)>0.98*Real(MAX_MOLS)) break
+endfor
+
+write table enumeration_results root_folder+"enumeration_results.tab"
+
+endif
+
+
+proj_name=project_name
+chunk_size=Integer(MAX_MOLS)/Integer(CHUNKS_COUNT)-1
+dir_mols=out_dir
+dir_mols_out=root_folder+"/enumerated_"+proj_name+"_"+OUTPUT_SUFFIX+"_chunks_"+String(chunk_size+1)+"/"
+temp_dir=root_folder+"/temp_dir"
+if(!Exist(temp_dir)) sys mkdir $temp_dir
+if(!Exist(dir_mols_out)) sys mkdir $dir_mols_out
+temp_file=root_folder+"/temp_dir/temp"+OUTPUT_SUFFIX#+Name(dir_mols simple)
+temp_file_name=temp_file+".sdf"
+
+if( Nof(enumeration_results.nof_enum!=0)) then
+  sys cat $dir_mols/*sdf > $temp_file.sdf
+  write index mol temp_file+".sdf" temp_file+".inx" "mol" { "ID" }
+else
+  curr_path=Path()
+  set directory dir_mols
+  sys find . -maxdepth 1 -type f -name 'E*.sdf' -print0 | sort -zV | xargs -0 cat > $temp_file_name
+  set directory curr_path
+endif
+
+
+write index mol temp_file+".sdf" temp_file+".inx" "mol" { "ID" }
+
+read index temp_file+".inx" name="temp"
+
+for i = 1, Nof(temp)
+  $i
+  read table mol temp[i:i+chunk_size]
+  write table mol compress chem dir_mols_out+proj_name+"_"+OUTPUT_SUFFIX+"_chunk_" + i + "_" + (i+chunk_size) + ".sdf"
+  delete chem
+  i += chunk_size
+endfor
+
+delete temp, chem
+sys rm $temp_file.*
+sys rm -r $temp_dir
+
+path_to_files=dir_mols_out
+path_to_store_files=dir_mols_out
+
+read sys ls -1a $path_to_files/*.sdf #fetch all fragments
+sdf_files=Split(s_out, "\n")  
+
+#
+### perform charging
+#
+
+if(CHARGE_ENUM_LIB=="yes") then 
+  files=sdf_files
+  path_out=path_to_store_files
+  if(!Exist(path_out)) then
+    sys mkdir $path_out
+  endif
+  for i_f=1,Nof(files)
+    print "Performing charging of the resulting enumeration library"
+    print "current iteration: "+String(i_f)
+    print "analyzing file "+files[i_f]
+    openFile files[i_f]
+    tname=Name(files[i_f])
+    rename $tname chem
+    
+    ###find all amines that are not aromatic, amide, connected to a heteroatom
+    
+    amino = "$([NX3])" #any 3- connected amine #"$([NX4+]) - find all 4-connected amines
+    not_tertiary_amine = ";$!([NX3;!H3;!H2;!H1])" #3-connected amine with no hydrogens
+    alkyl_amine = ";!$(N~[!C])" #amine not connected to non-carbon aliphatic atom
+    no_hetero_alpha_alkyl_amine = ";!$(NC~[!#6])" #alpha carbon of amine not connected to non-carbon atom
+    no_acid_alpha_alkyl_amine = "" #since amines in alpha and beta aminoacids are charged, no reason to treat them differently #"$([NX3H2][#6][C](=O)[O,N])"
+    no_halide_alpha_alkyl_amine = ";!$(N[#6][#6]([F,Cl,Br])[F,Cl,Br])" #alpha carbon of amine not connected to methyl di- or tri- halide
+    #beta mono halides (NH2CH2CH2Cl) should be charged, beta di halides and di monobetahalides (NH(Ch2CH2Cl)2) - both, and trihalides all uncharged (same with OH which is analog of halide). This is not fully implemented  
+    #source: https://pubs.acs.org/doi/pdf/10.1021/ja01181a086
+    not_conjugated_amino = ";!$((N(C=*)@C=*));!$(N[#6]=[#6][#6]=[*])"
+    
+    if(CHARGE_TERTIARY=="yes") then
+      amino_search_string="["+amino+alkyl_amine+no_hetero_alpha_alkyl_amine+no_acid_alpha_alkyl_amine+no_halide_alpha_alkyl_amine+not_conjugated_amino+"]";
+    else
+      amino_search_string="["+amino+not_tertiary_amine+alkyl_amine+no_hetero_alpha_alkyl_amine+no_acid_alpha_alkyl_amine+no_halide_alpha_alkyl_amine+not_conjugated_amino+"]";
+    endif
+     
+    modify chemical exact chem.mol amino_search_string "[N+]"
+   
+    ###find all non-amine groups that should be positively charged (currently only imidazole is supported)
+    #imidazole:
+   
+    imidazole_search_string="[$([nX2]);$([nr5]:[cr5]:[nr5]:[cr5]:[cr5])]"
+    if(CHARGE_IMIDAZOLE=="yes") then
+      modify chemical exact chem.mol imidazole_search_string "[#7+]"
+    endif
+    
+  #guanidine:
+  guanidine_search_string="[$([NX2]);$([#7]=[#6]([#7])[#7])]"
+  modify chemical exact chem.mol guanidine_search_string "[#7+]"    
+  
+    ###find all groups that should be negatively charged (currently only tetrazoles are supported since regular acids are always charged during docking)
+    #tetrazole:
+   
+    tetrazole_search_string="[$([nX3;H1]);$([nr5]:[nr5]:[cr5]:[nr5]:[nr5]),$([nr5]:[cr5]:[nr5]:[nr5]:[nr5])]"
+    modify chemical exact chem.mol tetrazole_search_string "[#7-]"    
+    
+  out_file=path_out+Name(files[i_f])
+    write table mol compress chem out_file
+    
+    delete chem
+  endfor
+endif
+
+#
+###perform indexing
+#
+
+for i=1,Nof(sdf_files)
+  sdf_file=sdf_files[i]
+  sdf_file_copy=path_to_store_files+"/"+Name(sdf_file)+".sdf"
+  inx_file=path_to_store_files+"/"+Name(sdf_file)+".inx"
+  if(!Exist(sdf_file_copy)) sys cp $sdf_file $sdf_file_copy
+  if(!Exist(inx_file)) write index mol sdf_file_copy inx_file
+  delete all tables
+endfor
+
+
+quit

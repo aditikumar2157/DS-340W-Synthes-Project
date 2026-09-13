@@ -1,0 +1,154 @@
+#!bash
+call _startup
+l_commands=no
+errorAction="exit"
+maxMemory = 8000 #Mb, max RAM size to be used by ICM
+
+
+
+#change this
+TABLE_NAME = "default" 
+PATH_TO_HITLIST = "default"  
+CALCULATE_PROPERTIES="yes"
+FILTER_PROPERTIES="yes"
+
+#filters
+RTCNN_FLT = "-5."
+MW_FLT = "500"
+logP_FLT = "5"
+logS_FLT = "-5"
+toxScore_FLT = "1.0"
+toxClass_FLT = "0.50"
+pains_FLT = "0.50"
+
+
+if(Exist("./input_VSYNTHES_CARC.in")) then
+  read table separator ="\t" "input_VSYNTHES_CARC.in"
+  a = input_VSYNTHES_CARC.A
+  b = input_VSYNTHES_CARC.B
+  for i = 1,Nof(a)
+    if(a[i]!="" & a[i][1]!="#" & b[i][1]!="#") then
+      $a[i] = b[i]
+      print a[i] "\t" $a[i]
+    endif
+  endfor 
+else
+  print "input_VSYNTHES_CARC.in is not provided, going with defaults settings"
+endif
+delete input_VSYNTHES_CARC
+
+RTCNN = Real(RTCNN_FLT)
+MW = Real(MW_FLT)
+logP = Real(logP_FLT)
+logS = Real(logS_FLT)
+toxScore = Real(toxScore_FLT)
+toxClass = Real(toxClass_FLT)
+pains = Real(pains_FLT)
+table_name = TABLE_NAME
+path_to_hitlist = PATH_TO_HITLIST
+calculate_properties = CALCULATE_PROPERTIES
+filter_properties = FILTER_PROPERTIES
+
+#Main script
+
+root_folder=Path()
+
+project_path= root_folder+"/run/"
+
+
+if(table_name=="default")then
+  read sys ls $project_path/*.htm #always PROJECTNAME_LOG.htm
+  tmp_name=Split(s_out,"\n")[1]
+  tmp_name=Split(tmp_name,"/")[Nof(Split(tmp_name,"/"))]
+  project_name = tmp_name[1:Length(tmp_name)-8]
+  print project_name
+  final_name=project_name+"_"+Split(root_folder,"/")[Nof(Split(root_folder,"/"))]
+  table_name=final_name
+  print table_name
+endif
+
+if(path_to_hitlist=="default") then
+  out_dir=project_path+"/processing_files/"
+  path_to_hitlist=out_dir+table_name+".icb"
+  print path_to_hitlist
+endif
+
+openFile path_to_hitlist
+undisplay window
+delete hits_hist
+delete MWs_hist
+delete logp_hist
+delete input_VSYNTHES_CARC
+rename $table_name Name(Name("tmp_table" simple),unique)
+
+#calculate properties
+
+if(calculate_properties=="yes") then
+delete tmp_table.molWeight
+print "MW is calculating"
+add column tmp_table function="MolWeight(mol,'monoiso')" index=2 name="molWeight" delete format="%.3f" comment="Monoisotopic or average isotopic molecular weight from .mol [Daltons]"  
+  
+delete tmp_table.molLogP
+print "logP is calculating"
+add column tmp_table function="MolLogP(mol)" index=2 name="molLogP" delete format="%.2f" comment="Octanol water partition, Log10(C_oct/C_w) from .mol"
+
+delete tmp_table.molLogS
+print "logS is calculating"
+add column tmp_table function="MolLogS(mol)" index=2 name="molLogS" delete format="%.2f" comment="Water solubility, Log10([C]): 10-based logarithm of the solubility in mol/l or M units predicted from .mol" 
+  
+delete tmp_table.badGroups
+print "badGroups are calculating"
+add column tmp_table Find(tmp_table.mol,problem) index=2 name="badGroups" delete comment="Unwanted or reactive chemical functionality from .mol"
+
+print "Toxicity is calculating"  
+add column tmp_table function="ToxScore(mol,yes,yes)" index=2 name="tox_Score" delete comment="Chemical Alert collected from Chemical suppliers and other sources, Tox_Score >1. indicates substructure/substituent that is flagged as unfavorable, Tox_Class > 0.5 indicates toxic compound " vector
+
+print "PAINS are calculating"
+add column tmp_table function="predictModelsCol(mol,\"mcpPAINS\")" index=2 name="molPAINS" delete comment="Predict Pan Assay Interference Compound (PAINS), a value >0.5 indicates high probability of being a PAINS Compound " vector 
+
+table_name_properties=table_name+"_properties"
+rename tmp_table table_name_properties
+writeProject out_dir+table_name_properties
+
+rename $table_name_properties "tmp_table"
+
+endif
+  
+#filter by properties
+
+if(filter_properties=="yes") then
+delete tmp_table.RTCNNscore > RTCNN
+print "after RTCNN " + Nof(tmp_table)
+  
+delete tmp_table.molWeight > MW
+print "after molWeight " + Nof(tmp_table)
+  
+delete tmp_table.molLogP > logP
+print "after molLogP " + Nof(tmp_table)
+  
+delete tmp_table.molLogS < logS
+print "after molLogS " + Nof(tmp_table)
+  
+ 
+delete tmp_table.Tox_Score > toxScore
+delete tmp_table.Tox_Class > toxClass
+print "after ToxScore " + Nof(tmp_table)
+  
+delete tmp_table.molPAINS > pains
+print "after PAINS " + Nof(tmp_table)
+  
+add t1 tmp_table.badGroups == "Carbamate\n"  #Nof(Split(t12.badGroups[1],"Carbamate",exact))==2
+add t2 tmp_table.badGroups == "Enamine\n"
+delete tmp_table.badGroups != ""
+add tmp_table t1
+add tmp_table t2
+delete t1, t2
+print "after badgroups " + Nof(tmp_table)
+
+table_name_clean=table_name+"_clean"
+rename tmp_table table_name_clean
+writeProject out_dir+table_name_clean
+
+endif
+
+quit

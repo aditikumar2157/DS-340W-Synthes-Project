@@ -1,0 +1,325 @@
+call _startup
+l_commands=no
+l_info=no
+errorAction="exit"
+TOOLS.enumerationMemoryLimit=500000 #for large files, enumeration can produce a lot of compounds
+
+#####
+#
+#variables to be modified by the user
+MAX_MOLS="1000000" #maximum number of enumerated molecules in the output
+FLT_MW="10000."
+PERCENT_DB_STR="0.20"
+comp_str="2comp" #2comp, 3comp, bridge
+ADDITIONAL_FILTERS=""
+path_to_reactions="/home/rnd_lib_generation/SYNTHONS_REACTIONS_REAL.icb" #contains min synthons too
+molt_synthons_file="/home/rnd_lib_generation/synthons_REAL.molt"
+output_folder="/home/rnd_lib_generation/rnd_3comp/" #can be empty, then output will be written to the current folder
+
+#####
+
+if(Exist("./input_rnd_enum.in")) then
+  read table separator ="\t" "input_rnd_enum.in"
+  a = input_rnd_enum.A
+  b = input_rnd_enum.B
+  for i = 1,Nof(a)
+    if(a[i]!="" & a[i][1]!="#" & b[i][1]!="#") then
+      $a[i] = b[i]
+      print a[i] "\t" $a[i]
+    endif
+  endfor 
+else
+  print "input_rnd_enum.in is not provided, going with defaults settings"
+endif
+
+START="1"
+FINISH="" #if empty, Nof(all_rxns)
+synthons_version="one_table" 
+query_style="new" 
+PERCENT_DB_BRIDGE_STR="0.0103" 
+rxns_with_swapped_syntons={"274552"}
+
+PERCENT_DB=Real(PERCENT_DB_STR)
+PERCENT_DB_BRIDGE=Real(PERCENT_DB_BRIDGE_STR)
+flt_MW=Real(FLT_MW)
+
+#open reactions file
+openFile path_to_reactions
+
+#connect to synthons molt
+connect molcart filename=molt_synthons_file name="molt_synthons"
+connect_id_synthons = s_out
+synthons_molt=Name(molt_synthons_file)
+
+if(output_folder=="")then
+  output_folder=Path()
+endif
+if(!Exist(output_folder))then
+  sys mkdir $output_folder
+endif
+rnd_molt="enumerated_rnd_mols_"+comp_str+"_PERCENTDB_"+Name(PERCENT_DB_STR simple)+"_"+MAX_MOLS
+molt_rnd_file=output_folder+"/"+rnd_molt+".molt"
+#check if random molt exists already (restart)
+molcart_exists=false
+if(Exist(molt_rnd_file))then
+  #sys rm $molt_rnd_file
+  molcart_exists=true
+  connect molcart filename=molt_rnd_file name=rnd_molt
+  connect_id_rnd = s_out
+endif
+
+total_count=0
+total_before_filters=0
+
+start=Integer(START)
+if(FINISH!="")then
+  finish=Integer(FINISH)
+else
+  finish=Nof(all_rxns)
+endif
+
+before_enum=Time()
+for i_f=start,finish
+  curr_rxn = all_rxns[i_f]
+  curr_rxn_id = curr_rxn.rxn_ID[1]
+  n_comp = String(all_rxns.nof_attach[i_f])
+  
+  n_synth=String(curr_rxn.nof_synth[1])
+  
+  if(n_synth!="2" & comp_str=="2comp")then
+    #skip non-2comp reaction when 2comp are requested
+    continue
+  endif
+  if(n_synth!="3" & comp_str=="3comp")then
+    continue
+  endif
+  if(n_synth!="4" & comp_str=="bridge")then
+    #bridge has 4 attachment points: 2 on bridge, 1 on each arm
+    continue
+  endif
+  
+  print "current iteration: "+String(i_f)
+  print(n_synth)
+  
+  ###
+
+  print "analyzing rxn_ID "+all_rxns.rxn_ID[i_f]
+  
+  #load synthon tables
+  s1_tname = curr_rxn_id+"__1"
+  s2_tname = curr_rxn_id+"__2"
+  s3_tname = curr_rxn_id+"__3"
+  
+  if(query_style=="new")then #the 'old' style is EN-m_10baa_58X1467 of rxn_ID in synthons file
+    rxn_id_for_query = curr_rxn_id
+  else
+    rxn_id_for_query = "EN-"+Split(curr_rxn_id,"EN")[3][2:Length(Split(curr_rxn_id,"EN")[2])]
+  endif
+  if(synthons_version=="tables_by_rxn")then
+    load molcart table=s1_tname name="s1" connect=connect_id_synthons
+    load molcart table=s2_tname name="s2" connect=connect_id_synthons
+    if(n_comp=="3") then
+      load molcart table=s3_tname name="s3" connect=connect_id_synthons
+    endif
+  elseif(synthons_version=="one_table")then
+    query_s1="select * from "+synthons_molt+" where rxn_ID=='"+rxn_id_for_query+"' AND synthon_num=='1'"
+    query_s2="select * from "+synthons_molt+" where rxn_ID=='"+rxn_id_for_query+"' AND synthon_num=='2'"
+    query_s3="select * from "+synthons_molt+" where rxn_ID=='"+rxn_id_for_query+"' AND synthon_num=='3'"
+    #print query_s1
+    query molcart query_s1 connect=connect_id_synthons name="s1" 
+    query molcart query_s2 connect=connect_id_synthons name="s2"
+    if(n_comp=="3") then
+      query molcart query_s3 connect=connect_id_synthons name="s3"
+    endif
+  else
+    print "select synthons_version!"
+	quit
+  endif
+  if(Nof(s1)==0 | Nof(s2)==0) then  
+    print "couldn't load rxns, try different query_style!"
+	quit
+  endif
+  
+  #fix rxn_ID column to be the same as in all_rxns
+  delete s1.rxn_ID
+  delete s2.rxn_ID
+  add column s1 Sarray(Nof(s1),curr_rxn_id) name="rxn_ID" index=3
+  add column s2 Sarray(Nof(s2),curr_rxn_id) name="rxn_ID" index=3
+  if(n_comp=="3") then
+    delete s3.rxn_ID
+    add column s3 Sarray(Nof(s3),curr_rxn_id) name="rxn_ID" index=3
+  endif
+  
+  ###
+  
+  # selected random synthons from full lists
+  
+  print "s1 s2 s3"
+  print Nof(s1), Nof(s2), Nof(s3)  
+  MAX_COUNT=50
+  percent_db = PERCENT_DB
+  # if(n_synth=="3")then
+  #   percent_db = PERCENT_DB_BRIDGE
+  # endif
+  len_t=Integer(Nof(s1)*percent_db)+1
+  group table random_n Iarray(len_t) "s1"
+  for i_rnd=1,len_t
+    for i_count=1,MAX_COUNT
+      rnd_n=Random(Nof(s1))
+      if(Nof(random_n.s1==rnd_n)==0) break
+      #if(i_count>1) print "finding new row "+String(i_rnd)+" for s1, count "+String(i_count)+" by child "+String(Index(fork,all))
+    endfor
+    random_n.s1[i_rnd]=rnd_n
+    add r1 s1[rnd_n]
+  endfor
+  print "r1",Nof(r1)
+  delete s1
+  
+  len_t=Integer(Nof(s2)*percent_db)+1
+  group table random_n Iarray(len_t) "s2"
+  for i_rnd=1,len_t
+    for i_count=1,MAX_COUNT
+      rnd_n=Random(Nof(s2))
+      if(Nof(random_n.s2==rnd_n)==0) break
+      #if(i_count>1) print "finding new row "+String(i_rnd)+" for s2, count "+String(i_count)+" by child "+String(Index(fork,all))
+    endfor
+    random_n.s2[i_rnd]=rnd_n
+    add r2 s2[rnd_n]
+  endfor
+  print "r2",Nof(r2)
+  delete s2
+  
+  if(Nof(s3)>0)then
+    len_t=Integer(Nof(s3)*PERCENT_DB)+1
+    group table random_n Iarray(len_t) "s3"
+    for i_rnd=1,len_t
+      for i_count=1,MAX_COUNT
+        rnd_n=Random(Nof(s3))
+        if(Nof(random_n.s3==rnd_n)==0) break
+        #if(i_count>1) print "finding new row "+String(i_rnd)+" for s3, count "+String(i_count)+" by child "+String(Index(fork,all))
+      endfor
+      random_n.s3[i_rnd]=rnd_n
+      add r3 s3[rnd_n]
+    endfor
+    print "r3",Nof(r3)
+    delete s3
+  endif
+
+  Nof_before_filters=Nof(r1)*Nof(r2) #*Nof(r3)
+  total_before_filters=total_before_filters+Nof_before_filters
+
+  # enumerate selected random synthons into full molecules
+  # before that, delete rnd1 just in case it survived from the previous iteration
+  old_warn=l_warn
+  l_warn=no
+  delete rnd1
+  l_warn=old_warn
+  
+  # figure out filters
+  if(ADDITIONAL_FILTERS!="") then
+    additional_filters=" & "+ADDITIONAL_FILTERS
+  else
+    additional_filters=""
+  endif
+  flt_r="MolWeight(mol)<"+flt_MW+additional_filters
+  
+  if(n_synth=="2") then
+    enumerate library curr_rxn.mol[1] r1.mol r1.synton_id r2.mol r2.synton_id name="rnd1" filter=flt_r
+    if(Nof(rnd1)==0)then
+      continue
+    endif
+    add column rnd1 Sarray(Nof(rnd1),"s-1") name="synton_id_3" index=4
+    rename rnd1.R1_synton_id "synton_id_1"
+    rename rnd1.R2_synton_id "synton_id_2"
+  elseif (n_synth=="3") then
+    enumerate library curr_rxn.mol[1] r1.mol r1.synton_id r2.mol r2.synton_id r3.mol r3.synton_id name="rnd1" filter=flt_r
+    if(Nof(rnd1)==0)then
+      continue
+    endif
+    rename rnd1.R1_synton_id "synton_id_1"
+    rename rnd1.R2_synton_id "synton_id_2"
+    rename rnd1.R3_synton_id "synton_id_3"
+  elseif(n_synth=="4") then #bridge-like
+    # if reaction is in the naughty list, swap the synthons
+    for i_s_r=1,Nof(rxns_with_swapped_syntons)
+      if(Nof(Split(curr_rxn_id,rxns_with_swapped_syntons[i_s_r],exact))>1)then
+        tmp_tabl=r2
+        r2=r3
+        r3=tmp_tabl
+        delete tmp_tabl
+        break
+      endif
+    endfor
+    for i_br=1,Nof(r1)
+      enumerate library r1.mol[i_br] r2.mol r2.synton_id r3.mol r3.synton_id filter=flt_r
+      if(Nof(T_enum)==0)then
+        continue
+      endif
+      if(Nof(T_enum)>0)then
+        add column T_enum Sarray(Nof(T_enum),"s0") name="synton_id_1" index=2
+        rename T_enum.R1_synton_id "synton_id_2"
+        rename T_enum.R2_synton_id "synton_id_3"
+        add rnd1 T_enum
+        delete T_enum
+      endif
+    endfor
+  else
+    print i_f,curr_rxn_id,"unknown reaction type"
+    continue
+  endif
+
+  ### add full_synthon_id, rxn_ID
+  old_l_info=l_info
+  l_info=no
+
+  if(Nof(rnd1)==0) continue
+
+  add column rnd1 Sarray(Nof(rnd1),curr_rxn_id) name="rxn_ID"
+  add column rnd1 function="rxn_ID+'__'+Name(synton_id_1)+'_'+Name(synton_id_2)+'_'+Name(synton_id_3)" index =3 name="full_synton_id"
+
+  ###save to molt database
+  #columns to be added to molt file
+  ###-mol---------smiles------full_synton_id
+  columns = {"1 chemical mol", "3 string full_synton_id"}
+
+  #count total mols
+  curr_nof_comp = Nof(rnd1)
+  total_count = total_count + Nof(rnd1)
+
+  l_info=old_l_info
+  
+  #there can be duplicates within the same table!
+  inx_dups = Index( rnd1.mol exact stereo )
+  delete rnd1[inx_dups]
+
+  #finally, add new molecules to the db
+  add sample_mols rnd1[1]
+  print("updating molcart with new mols...")
+
+  make molcart table rnd1 name=rnd_molt column = columns filename=molt_rnd_file append
+
+  nof_upd = Nof(rnd1)
+  print("added "+String(nof_upd)+" unique molecules")
+  #print("Total before filters "+total_before_filters)
+  l_warn_old=l_warn
+  l_warn=no
+  delete s1,s2,s3,r1,r2,r3
+  delete rnd1
+  l_warn=l_warn_old
+  
+  #happens only on the first iteration, when molcart is created
+  if(!molcart_exists) then
+    molcart_exists=true
+    connect molcart filename=molt_rnd_file name=rnd_molt
+    connect_id_rnd=s_out
+  endif
+  print("Total molecules processed: "+String(total_count))
+  # if(Mod(i_f,1000)==0)then
+  #   writeProject "tmp_"+String(i_f)
+  # endif
+endfor
+print "Total time: "+String(Time()-before_enum)
+
+
+
+quit
