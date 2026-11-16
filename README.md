@@ -17,6 +17,20 @@ What's newly added:
 
 In addition to revised scripts from the V-SYNTHES 1.0 version, V-SYNTHES2 includes 1) a newly developed automated algorithm, CapSelect. CapSelect is specifically designed to optimize and automate the step (2b) that was performed manually in the original V-SYNTHES 1.0 workflow; 2) complete RMSD assessments between MEL fragments and corresponding enumerated molecules for different protein targets and REAL reaction-based subspaces.
 
+## Student experiment: alternative docking-score rankings
+
+The `experiments/compare_pose_ranking.py` script compares the parent ranking by docking `Score` with two experimental rankings: `Score / heavy-atom count` (size-normalized score) and rank fusion (the sum of each molecule's rank by docking score and by heavy-atom count). The rank-fusion method gives equal weight to the two criteria without mixing their different units. Both are analysis-only methods; they do not modify V-SYNTHES2 or its CapSelect selection step.
+
+After completing the RMSD assessment and producing an SDF that contains numeric `<Score>` and `<RMSD>` fields (for example, the generated `RMSD_MP.sdf`), run:
+
+```bash
+python3 experiments/compare_pose_ranking.py path/to/RMSD_MP.sdf --csv ranking_comparison.csv
+```
+
+The script reports two measures for the full set and for the top 10% under each of the three rankings: median RMSD in the selected subset, and Spearman correlation between ranking score and RMSD. Lower subset median RMSD is preferable; a positive Spearman correlation means better (lower) ranking values tend to accompany lower RMSD. Adjust the selected fraction with `--top-fraction 0.05`, for example. The CSV is a compact comparison table for the report.
+
+This experiment evaluates pose retention, not binding affinity or enrichment of experimentally confirmed actives. Run it on the same records for both rankings, report the sample size, and do not describe the experimental ranking as an improvement unless the measured results support that conclusion. RMSD values are an evaluation outcome and are never used as ranking inputs.
+
 
 PROCEDURE 1: V-SYNTHES2 AUTOMATED RUN
 
