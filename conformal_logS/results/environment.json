@@ -1,0 +1,8 @@
+{
+  "python":"3.12.13",
+  "platform":"macOS-26.5.2-arm64-arm-64bit",
+  "numpy":"2.5.5",
+  "pandas":"3.1.1",
+  "scikit_learn":"1.9.1",
+  "rdkit":"2025.03.6"
+}

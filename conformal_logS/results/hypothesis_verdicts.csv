@@ -1,0 +1,17 @@
+hypothesis,claim,condition,baseline,comparison,supported
+H1,conformal calibration lands closer to 90% coverage than the uncalibrated baseline,random split,PICP 0.967 (gap +0.067),PICP 0.904 (gap +0.004),True
+H1,conformal calibration lands closer to 90% coverage than the uncalibrated baseline,scaffold split,PICP 0.902 (gap +0.002),PICP 0.726 (gap -0.174),False
+H1,conformal calibration lands closer to 90% coverage than the uncalibrated baseline,scaffold_ood_calib split,PICP 0.920 (gap +0.020),PICP 0.846 (gap -0.054),False
+H2,point accuracy is worse under scaffold splitting than random splitting,scaffold vs random,random RMSE 0.651,scaffold RMSE 0.928,True
+H2,point accuracy is worse under scaffold splitting than random splitting,scaffold_ood_calib vs random,random RMSE 0.651,scaffold_ood_calib RMSE 0.959,True
+H1*,calibrating on unfamiliar molecules recovers coverage lost under scaffold shift,split_conformal,random calibration PICP 0.726 (gap -0.174),scaffold calibration PICP 0.846 (gap -0.054),True
+H1*,calibrating on unfamiliar molecules recovers coverage lost under scaffold shift,normalized_conformal,random calibration PICP 0.784 (gap -0.116),scaffold calibration PICP 0.852 (gap -0.048),True
+H3,coverage degrades for structurally unfamiliar molecules,random split / uncalibrated_gaussian,most familiar quartile PICP 0.982 (sim 0.80),least familiar quartile PICP 0.943 (sim 0.30),True
+H3,coverage degrades for structurally unfamiliar molecules,random split / split_conformal,most familiar quartile PICP 0.952 (sim 0.80),least familiar quartile PICP 0.837 (sim 0.30),True
+H3,coverage degrades for structurally unfamiliar molecules,random split / normalized_conformal,most familiar quartile PICP 0.952 (sim 0.80),least familiar quartile PICP 0.858 (sim 0.30),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold split / uncalibrated_gaussian,most familiar quartile PICP 0.923 (sim 0.67),least familiar quartile PICP 0.902 (sim 0.25),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold split / split_conformal,most familiar quartile PICP 0.787 (sim 0.67),least familiar quartile PICP 0.696 (sim 0.25),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold split / normalized_conformal,most familiar quartile PICP 0.816 (sim 0.67),least familiar quartile PICP 0.753 (sim 0.25),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold_ood_calib split / uncalibrated_gaussian,most familiar quartile PICP 0.925 (sim 0.66),least familiar quartile PICP 0.884 (sim 0.24),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold_ood_calib split / split_conformal,most familiar quartile PICP 0.857 (sim 0.66),least familiar quartile PICP 0.803 (sim 0.24),True
+H3,coverage degrades for structurally unfamiliar molecules,scaffold_ood_calib split / normalized_conformal,most familiar quartile PICP 0.862 (sim 0.66),least familiar quartile PICP 0.785 (sim 0.24),True
