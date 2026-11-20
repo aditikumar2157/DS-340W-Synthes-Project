@@ -1,3 +1,18 @@
+# DS 340W — Reliable AI for Drug Candidate Screening
+
+Course project by Aditi Kumar, Meghana Vinjamury and Sawan Pandita, built on
+top of a fork of the V-SYNTHES2 virtual-screening pipeline.
+
+**The project code lives in [`conformal_logS/`](conformal_logS/README.md)** —
+a reproducible evaluation of conformal prediction for molecular property
+prediction (Random Forest on RDKit descriptors, 90% prediction intervals for
+aqueous solubility, compared under random and Bemis-Murcko scaffold splits).
+Start with that README for the pipeline, the results and how to run them.
+
+Everything below is the upstream V-SYNTHES2 documentation, kept unchanged.
+
+---
+
 V-SYNTHES2 Pipeline (Prepared by Dr. Antonina Nazarova, Dr. Anastasiia Sadybekov, Dr. Arman Sadybekov)
 This directory contains scripts necessary for executing the V-SYNTHES2 workflow (located in the scripts/ folder), along with example files derived from the Enamine REAL Space library for demonstration purposes. The receptor model used here is the Rho receptor, thoroughly characterized within the manuscript. The included examples represent two- and three-component reaction subsets of Enamine REAL Space. The current REAL Space library contains approximately 36 billion fully enumerated molecules across more than 164 well-established parallel synthesis reactions (for comprehensive information for your specific REAL library implemented in screening, please contact Enamine).
 

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# Compiled CapSelect binary and its scratch output (build locally per the
+# procedure in README.md; see the troubleshooting note under Stage IV).
+CapSelect/CapSelect
+CapSelect/CapSelect.sdf
