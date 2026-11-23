@@ -18,6 +18,23 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 RESULTS_DIR = PROJECT_ROOT / "results"
 FIGURE_DIR = RESULTS_DIR / "figures"
 
+#: Every interval method the sweep knows how to build.
+KNOWN_METHODS = frozenset(
+    {
+        "uncalibrated_gaussian",
+        "split_conformal",
+        "normalized_conformal",
+        "normalized_conformal_qrf",
+        "cqr",
+        "mondrian_conformal",
+        "mondrian_normalized",
+    }
+)
+
+#: Datasets the loader knows. Kept here rather than in ``data`` so that
+#: validating a config needs no RDKit import.
+KNOWN_DATASETS = frozenset({"esol", "aqsoldb"})
+
 
 @dataclass
 class Config:
@@ -44,6 +61,18 @@ class Config:
     novelty_bins:
         Number of equal-count bins used to group test molecules by maximum
         Tanimoto similarity to the training set (the H3 analysis).
+    mondrian_bins, mondrian_min_bin:
+        The novelty partition Mondrian conformal prediction calibrates within,
+        and the smallest calibration count a bin needs before it is allowed
+        its own width rather than borrowing the pooled one. These are separate
+        from ``novelty_bins`` on purpose: one is a reporting choice applied
+        after the fact, the other is part of the method and has to be fixed
+        before any test molecule is seen.
+    screening_threshold:
+        The LogS cut-off used by the screening-triage analysis, which asks the
+        question a virtual screen actually asks -- is this molecule above or
+        below a usable solubility? -- instead of asking for the value itself.
+        -4.0 log mol/L is a common "poorly soluble" boundary.
     """
 
     alpha: float = 0.10
@@ -64,11 +93,20 @@ class Config:
     morgan_bits: int = 2048
     novelty_bins: int = 4
 
+    mondrian_bins: int = 4
+    mondrian_min_bin: int = 25
+
+    screening_threshold: float = -4.0
+
     split_types: tuple[str, ...] = ("random", "scaffold", "scaffold_ood_calib")
     methods: tuple[str, ...] = (
         "uncalibrated_gaussian",
         "split_conformal",
         "normalized_conformal",
+        "normalized_conformal_qrf",
+        "cqr",
+        "mondrian_conformal",
+        "mondrian_normalized",
     )
 
     dataset_name: str = "esol"
@@ -92,13 +130,20 @@ class Config:
             )
         if not self.seeds:
             raise ValueError("at least one seed is required")
-        unknown = set(self.methods) - {
-            "uncalibrated_gaussian",
-            "split_conformal",
-            "normalized_conformal",
-        }
+        unknown = set(self.methods) - KNOWN_METHODS
         if unknown:
-            raise ValueError(f"unknown methods: {sorted(unknown)}")
+            raise ValueError(
+                f"unknown methods: {sorted(unknown)}; known: {sorted(KNOWN_METHODS)}"
+            )
+        if self.mondrian_bins < 2:
+            raise ValueError(
+                f"mondrian_bins must be at least 2, got {self.mondrian_bins}"
+            )
+        if self.dataset_name not in KNOWN_DATASETS:
+            raise ValueError(
+                f"unknown dataset: {self.dataset_name!r}; "
+                f"known: {sorted(KNOWN_DATASETS)}"
+            )
         unknown_splits = set(self.split_types) - {
             "random",
             "scaffold",

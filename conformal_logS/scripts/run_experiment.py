@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run the conformal-prediction experiment end to end.
 
-    python scripts/run_experiment.py                 # full sweep, 5 seeds
-    python scripts/run_experiment.py --quick          # 1 seed, 100 trees
-    python scripts/run_experiment.py --alpha 0.2      # 80% intervals
+    python scripts/run_experiment.py                      # ESOL, 5 seeds
+    python scripts/run_experiment.py --dataset aqsoldb    # AqSolDB, 5 seeds
+    python scripts/run_experiment.py --quick              # 1 seed, 100 trees
+    python scripts/run_experiment.py --alpha 0.2          # 80% intervals
 
 Writes every table to ``results/`` and every figure to ``results/figures/``,
-then prints the summary and the H1-H3 verdicts as markdown.
+then prints the summary and the H1-H5 verdicts as markdown.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ if str(SRC) not in sys.path:
 
 import pandas as pd
 
-from conformal_solubility.config import Config, RESULTS_DIR
+from conformal_solubility.config import KNOWN_DATASETS, Config, RESULTS_DIR
 from conformal_solubility.experiment import run_experiment
 from conformal_solubility.plots import make_all_figures
 
@@ -30,10 +31,28 @@ from conformal_solubility.plots import make_all_figures
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--dataset",
+        choices=sorted(KNOWN_DATASETS),
+        default="esol",
+        help="which solubility dataset to run on (default: esol)",
+    )
+    parser.add_argument(
         "--alpha",
         type=float,
         default=0.10,
         help="miscoverage level; 0.10 gives 90%% intervals (default: 0.10)",
+    )
+    parser.add_argument(
+        "--screening-threshold",
+        type=float,
+        default=-4.0,
+        help="LogS cut-off for the screening-triage analysis (default: -4.0)",
+    )
+    parser.add_argument(
+        "--mondrian-bins",
+        type=int,
+        default=4,
+        help="novelty bins Mondrian conformal calibrates within (default: 4)",
     )
     parser.add_argument(
         "--seeds",
@@ -80,14 +99,20 @@ def main(argv: list[str] | None = None) -> int:
 
     seeds = (0,) if args.quick else tuple(args.seeds)
     cfg = Config(
+        dataset_name=args.dataset,
         alpha=args.alpha,
         seeds=seeds,
         n_estimators=100 if args.quick else args.n_estimators,
         novelty_bins=args.novelty_bins,
+        mondrian_bins=args.mondrian_bins,
+        screening_threshold=args.screening_threshold,
     )
     results = run_experiment(cfg, results_dir=args.results_dir)
 
-    print("\n## Headline results (mean over %d seed(s))\n" % len(seeds))
+    print(
+        "\n## Headline results — %s, mean over %d seed(s)\n"
+        % (args.dataset, len(seeds))
+    )
     print(
         markdown_table(
             results["summary"],
@@ -116,6 +141,39 @@ def main(argv: list[str] | None = None) -> int:
                 "picp": "PICP",
                 "mpiw": "MPIW",
                 "rmse": "RMSE",
+            },
+        )
+    )
+
+    print("\n## Conditional coverage across novelty quartiles (H4)\n")
+    print(
+        markdown_table(
+            results["conditional_summary"],
+            {
+                "split_type": "Split",
+                "method": "Method",
+                "least_familiar_picp_mean": "Q1 PICP",
+                "most_familiar_picp_mean": "Q4 PICP",
+                "worst_bin_picp_mean": "Worst bin",
+                "conditional_gap_mean": "Worst-bin gap",
+                "novelty_spread_mean": "Q4 - Q1",
+            },
+        )
+    )
+
+    print(
+        "\n## Screening triage at LogS >= %g (H5)\n" % cfg.screening_threshold
+    )
+    print(
+        markdown_table(
+            results["screening_summary"],
+            {
+                "split_type": "Split",
+                "method": "Method",
+                "decisive_fraction_mean": "Called",
+                "decisive_error_rate_mean": "Error among calls",
+                "false_accept_rate_mean": "False accepts",
+                "point_error_rate_mean": "Point-call error",
             },
         )
     )

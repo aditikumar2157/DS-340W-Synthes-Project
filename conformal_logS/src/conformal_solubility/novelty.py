@@ -36,6 +36,37 @@ def max_train_similarity(
     )
 
 
+def similarity_bin_edges(similarity: np.ndarray, n_bins: int = 4) -> np.ndarray:
+    """Interior cut points splitting ``similarity`` into ``n_bins`` equal counts.
+
+    Returns ``n_bins - 1`` values. Unlike :func:`similarity_bins`, which labels
+    one fixed set of molecules, these edges are a *rule* that can be learned on
+    one set and applied to another -- which is exactly what Mondrian conformal
+    prediction needs: the bins have to be fixed by the calibration molecules
+    and then applied to new molecules whose labels are unknown.
+
+    Ties can collapse two edges onto the same value (many molecules sit at
+    similarity 1.0 under a random split). That leaves a bin empty rather than
+    raising; the caller is expected to notice an under-filled bin and fall back
+    to the pooled calibration set for it.
+    """
+    similarity = np.asarray(similarity, dtype=float)
+    if similarity.size == 0:
+        raise ValueError("cannot derive bin edges from an empty sample")
+    levels = np.arange(1, n_bins) / n_bins
+    return np.quantile(similarity, levels)
+
+
+def assign_similarity_bins(similarity: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Bin index (0 = least familiar) for each molecule, given fixed edges.
+
+    Molecules less similar to the training set than anything in the
+    calibration set land in bin 0, which is the correct conservative
+    behaviour: the least familiar bin carries the widest calibrated interval.
+    """
+    return np.searchsorted(np.asarray(edges, dtype=float), np.asarray(similarity, dtype=float), side="right")
+
+
 def similarity_bins(similarity: np.ndarray, n_bins: int = 4) -> pd.Series:
     """Group molecules into equal-count similarity bins, least familiar first.
 

@@ -1,18 +1,23 @@
 """Figures for the report.
 
-Four figures, one question each:
+Six figures, one question each:
 
-1. ``coverage.png``       -- does each method hit the 90% target? (H1)
-2. ``accuracy.png``       -- what does scaffold splitting cost in accuracy? (H2)
+1. ``coverage.png``         -- does each method hit the 90% target? (H1)
+2. ``accuracy.png``         -- what does scaffold splitting cost? (H2)
 3. ``novelty_coverage.png`` -- does coverage survive on unfamiliar molecules? (H3)
-4. ``intervals.png``      -- are the calibrated intervals usefully narrow?
+4. ``intervals.png``        -- are the calibrated intervals usefully narrow?
+5. ``conditional_gap.png``  -- does binning calibration even coverage out? (H4)
+6. ``screening.png``        -- what do the intervals buy a real screen? (H5)
 
-Palette notes: the three methods get a fixed categorical order (orange =
-uncalibrated baseline, blue = split conformal, purple = normalized conformal),
-assigned by name so a figure that omits a method never repaints the others.
-The hues were checked for colour-vision separation rather than chosen by eye,
-and every figure also distinguishes methods by position or marker, so colour
-is never the only cue.
+Palette notes: methods get a fixed colour keyed by name, so a figure that
+omits a method never repaints the others. The families are grouped by hue --
+rust for the uncalibrated baseline, blue for split conformal, purples for the
+normalized variants, teal for CQR, green and magenta for the Mondrian pair --
+and every figure also separates methods by marker or position, so colour is
+never the only cue. With seven methods the categorical set is at the limit of
+what stays distinguishable; the two figures where that would bite
+(``conditional_gap`` and ``screening``) therefore order methods along an axis
+rather than relying on the legend.
 """
 
 from __future__ import annotations
@@ -34,16 +39,41 @@ METHOD_COLORS = {
     "uncalibrated_gaussian": "#C2410C",
     "split_conformal": "#1B6FB5",
     "normalized_conformal": "#6D28A8",
+    "normalized_conformal_qrf": "#A855C7",
+    "cqr": "#0F766E",
+    "mondrian_conformal": "#15803D",
+    "mondrian_normalized": "#BE185D",
 }
 METHOD_MARKERS = {
     "uncalibrated_gaussian": "o",
     "split_conformal": "s",
     "normalized_conformal": "^",
+    "normalized_conformal_qrf": "v",
+    "cqr": "D",
+    "mondrian_conformal": "P",
+    "mondrian_normalized": "X",
 }
 METHOD_LABELS = {
     "uncalibrated_gaussian": "Uncalibrated (tree SD)",
     "split_conformal": "Split conformal",
-    "normalized_conformal": "Normalized conformal",
+    "normalized_conformal": "Normalized (tree SD)",
+    "normalized_conformal_qrf": "Normalized (quantile forest)",
+    "cqr": "CQR",
+    "mondrian_conformal": "Mondrian (novelty bins)",
+    "mondrian_normalized": "Mondrian + normalized",
+}
+# Compact forms for axis tick labels. Single-line, because these are drawn
+# rotated: seven categories per panel leaves roughly half an inch each, which
+# is not enough for a horizontal "Uncalibrated" without it colliding with its
+# neighbour.
+METHOD_SHORT = {
+    "uncalibrated_gaussian": "Uncalibrated",
+    "split_conformal": "Split conformal",
+    "normalized_conformal": "Norm. (tree SD)",
+    "normalized_conformal_qrf": "Norm. (QRF)",
+    "cqr": "CQR",
+    "mondrian_conformal": "Mondrian",
+    "mondrian_normalized": "Mondrian + norm.",
 }
 SPLIT_LABELS = {
     "random": "Random split",
@@ -360,6 +390,149 @@ def plot_interval_widths(predictions: pd.DataFrame, out_dir: Path) -> Path:
     return path
 
 
+def plot_conditional_gap(conditional_summary: pd.DataFrame, out_dir: Path) -> Path:
+    """H4: how far coverage strays from the target *within* novelty quartiles.
+
+    One bar per method per split, showing the worst quartile's distance from
+    nominal. Marginal coverage can look perfect while this number is large --
+    that is the whole complaint H4 is built on -- so plotting it directly is
+    more honest than asking the reader to infer it from four overlapping
+    lines in the novelty figure.
+
+    Lower is better, and zero means reliability does not depend on how
+    familiar the molecule is.
+    """
+    splits = _ordered(conditional_summary["split_type"], list(SPLIT_LABELS))
+    methods = _ordered(conditional_summary["method"], list(METHOD_COLORS))
+
+    with plt.rc_context(PLOT_STYLE):
+        fig, axes = plt.subplots(
+            1, max(len(splits), 1), figsize=(12.0, 5.2), sharey=True, squeeze=False
+        )
+        for ax, split_type in zip(axes[0], splits):
+            panel = conditional_summary[
+                conditional_summary["split_type"] == split_type
+            ].set_index("method")
+            values, errors, colors = [], [], []
+            for method in methods:
+                if method in panel.index:
+                    values.append(float(panel.loc[method, "conditional_gap_mean"]))
+                    err = float(panel.loc[method, "conditional_gap_std"])
+                    errors.append(0.0 if np.isnan(err) else err)
+                else:
+                    values.append(np.nan)
+                    errors.append(0.0)
+                colors.append(METHOD_COLORS[method])
+            positions = np.arange(len(methods))
+            ax.bar(positions, values, 0.74, color=colors, zorder=3)
+            ax.errorbar(
+                positions,
+                values,
+                yerr=errors,
+                fmt="none",
+                ecolor=INK,
+                elinewidth=1.0,
+                capsize=3,
+                zorder=4,
+            )
+            ax.set_xticks(positions, [METHOD_SHORT[m] for m in methods], fontsize=8)
+            ax.tick_params(axis="x", rotation=40)
+            for label in ax.get_xticklabels():
+                label.set_horizontalalignment("right")
+                label.set_rotation_mode("anchor")
+            ax.set_title(SPLIT_LABELS.get(split_type, split_type))
+            ax.yaxis.grid(True, zorder=0)
+            ax.set_axisbelow(True)
+        axes[0][0].set_ylabel("Worst-quartile distance from 90%")
+        fig.suptitle(
+            "Conditional coverage gap: the worst novelty quartile (lower is better)",
+            fontsize=12,
+            fontweight="bold",
+            color=INK,
+        )
+        fig.tight_layout()
+        path = out_dir / "conditional_gap.png"
+        fig.savefig(path, dpi=200)
+        plt.close(fig)
+    return path
+
+
+def plot_screening(screening_summary: pd.DataFrame, out_dir: Path) -> Path:
+    """H5: the decisiveness / reliability trade, with the point call for scale.
+
+    Each method is a point: how often it is willing to commit (x) against how
+    often a commitment is wrong (y). Down and to the right is better. The
+    dashed line is the point predictor, which commits on everything -- any
+    method below that line is making safer calls than a screen that ignores
+    uncertainty, and the distance leftward is what that safety cost.
+    """
+    splits = _ordered(screening_summary["split_type"], list(SPLIT_LABELS))
+    methods = _ordered(screening_summary["method"], list(METHOD_COLORS))
+
+    with plt.rc_context(PLOT_STYLE):
+        fig, axes = plt.subplots(
+            1, max(len(splits), 1), figsize=(12.0, 5.4), sharey=True, squeeze=False
+        )
+        for ax, split_type in zip(axes[0], splits):
+            panel = screening_summary[
+                screening_summary["split_type"] == split_type
+            ].set_index("method")
+            for method in methods:
+                if method not in panel.index:
+                    continue
+                ax.scatter(
+                    float(panel.loc[method, "decisive_fraction_mean"]),
+                    float(panel.loc[method, "decisive_error_rate_mean"]),
+                    s=110,
+                    color=METHOD_COLORS[method],
+                    marker=METHOD_MARKERS[method],
+                    edgecolor=SURFACE,
+                    linewidth=1.1,
+                    label=METHOD_LABELS[method],
+                    zorder=3,
+                )
+            if len(panel):
+                point_error = float(panel["point_error_rate_mean"].iloc[0])
+                ax.axhline(
+                    point_error, color=INK, linewidth=1.1, linestyle="--", zorder=2
+                )
+                # Below the line, not above: the panel titles run to two
+                # lines and an annotation placed above collides with them.
+                ax.annotate(
+                    f"point prediction ({point_error:.0%} wrong,\ncommits on everything)",
+                    xy=(0.03, point_error),
+                    xycoords=("axes fraction", "data"),
+                    xytext=(0, -5),
+                    textcoords="offset points",
+                    fontsize=8,
+                    color=MUTED,
+                    verticalalignment="top",
+                )
+            ax.set_xlabel("Fraction of molecules called")
+            ax.set_title(SPLIT_LABELS.get(split_type, split_type))
+            ax.grid(True, zorder=0)
+            ax.set_axisbelow(True)
+        axes[0][0].set_ylabel("Error rate among calls made")
+        # Headroom above the dashed point-prediction line, so the annotation
+        # under it has somewhere to sit.
+        axes[0][0].margins(y=0.18)
+        handles, labels = axes[0][0].get_legend_handles_labels()
+        fig.legend(
+            handles, labels, loc="lower center", ncols=4, bbox_to_anchor=(0.5, 0.005)
+        )
+        fig.suptitle(
+            "Screening triage: how often the model commits, and how often it is wrong",
+            fontsize=12,
+            fontweight="bold",
+            color=INK,
+        )
+        fig.tight_layout(rect=(0, 0.16, 1, 1))
+        path = out_dir / "screening.png"
+        fig.savefig(path, dpi=200)
+        plt.close(fig)
+    return path
+
+
 def make_all_figures(results: dict, out_dir: Path | None = None) -> list[Path]:
     out_dir = out_dir or FIGURE_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -370,4 +543,8 @@ def make_all_figures(results: dict, out_dir: Path | None = None) -> list[Path]:
         plot_novelty_coverage(results["novelty_summary"], alpha, out_dir),
         plot_interval_widths(results["predictions"], out_dir),
     ]
+    if "conditional_summary" in results:
+        paths.append(plot_conditional_gap(results["conditional_summary"], out_dir))
+    if "screening_summary" in results:
+        paths.append(plot_screening(results["screening_summary"], out_dir))
     return paths

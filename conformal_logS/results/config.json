@@ -17,6 +17,9 @@
   "morgan_radius": 2,
   "morgan_bits": 2048,
   "novelty_bins": 4,
+  "mondrian_bins": 4,
+  "mondrian_min_bin": 25,
+  "screening_threshold": -4.0,
   "split_types": [
     "random",
     "scaffold",
@@ -25,7 +28,11 @@
   "methods": [
     "uncalibrated_gaussian",
     "split_conformal",
-    "normalized_conformal"
+    "normalized_conformal",
+    "normalized_conformal_qrf",
+    "cqr",
+    "mondrian_conformal",
+    "mondrian_normalized"
   ],
   "dataset_name": "esol",
   "tags": {}

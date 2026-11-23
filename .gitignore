@@ -8,3 +8,9 @@ __pycache__/
 # procedure in README.md; see the troubleshooting note under Stage IV).
 CapSelect/CapSelect
 CapSelect/CapSelect.sdf
+
+# Local backup artefacts: git bundles and patch files exported for transfer
+# out of an ephemeral session. These contain a copy of this repository's own
+# history, so committing them would bloat the repo with circular data.
+dev-sawan_backup/
+*.bundle
