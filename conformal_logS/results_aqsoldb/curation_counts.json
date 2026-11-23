@@ -1,0 +1,8 @@
+{
+  "rows_in":9982,
+  "dropped_missing_target":0,
+  "dropped_unparseable":2,
+  "dropped_no_organic_fragment":0,
+  "duplicate_structures_collapsed":406,
+  "rows_out":9574
+}
