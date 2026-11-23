@@ -6,8 +6,20 @@ top of a fork of the V-SYNTHES2 virtual-screening pipeline.
 **The project code lives in [`conformal_logS/`](conformal_logS/README.md)** —
 a reproducible evaluation of conformal prediction for molecular property
 prediction (Random Forest on RDKit descriptors, 90% prediction intervals for
-aqueous solubility, compared under random and Bemis-Murcko scaffold splits).
-Start with that README for the pipeline, the results and how to run them.
+aqueous solubility, compared under random and Bemis-Murcko scaffold splits,
+on both ESOL and AqSolDB). Start with that README for the pipeline, the
+results and how to run them.
+
+That package also carries the project's bridge back to V-SYNTHES2:
+`conformal_logS/scripts/conformal_docking.py` reads a V-SYNTHES2 output SDF
+and asks what the pipeline's own hierarchy leaves unanswered — the fragment
+is selected on its MEL score, but the molecule it enumerates into is scored
+only after the expensive re-docking, and nothing bounds the gap between them.
+The script measures that gap and fits calibrated intervals for the final
+score from information available *before* docking. The example SDFs in this
+repository hold ten molecules each, which is below the minimum any conformal
+interval can be built from, so it reports what it needs rather than returning
+a number; point it at a run over a real REAL-space subset to use it.
 
 Everything below is the upstream V-SYNTHES2 documentation, kept unchanged.
 
